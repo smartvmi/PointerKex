@@ -1,0 +1,15 @@
+Disclaimer SmartVMI
+Software components created within the SmartVMI project are published according to the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+By downloading this software, you (hereinafter referred to as the user) additionally agree to comply with the SmartVMI terms of use stated here:
+The software components created within the SmartVMI project are solely meant for the purpose of improving the detection and analysis of malicious activities and software components (e.g. malware). They are destined to be only used in controlled, non-public environments having no interaction with production or end user environments.
+The user agrees to comply with all applicable international, federal, state and local laws and regulations including but not limited to export law, and those governing the use of forensic tools, malware analysis tools and related software in all jurisdictions in which the software is used. Any alteration of the software in breach of such laws is forbidden.
+The user ensures that they have all necessary permissions, authorizations and consents from the owners or licensors of the systems and networks (including without limitation the target systems) he uses the software on.
+The software may only be used for the purposes of good-faith testing, investigation, or correction of security flaws, or vulnerabilities in order to advance the security of devices, machines, or networks of those who use such devices, machines, or networks.
+The user will be responsible for their own and their commissioned third party's activities and compliance with this agreement.
+The user shall not and shall not permit or encourage any third party to use the software to engage in any of the following activities: any form of net abuse or unlawful purpose; illegal, fraudulent or abusive activities, disclosure of confidential data or information.
+This agreement and any issues, disputes or claims arising out of or in connection with it shall be governed by, and construed in accordance with, the laws of Germany.

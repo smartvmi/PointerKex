@@ -22,8 +22,8 @@ class Heap:
 
         self.heap = heap
         self.heap_size = len(heap)
-        self.length = int(self.heap_size/8)
-        self.aligned_heap = np.reshape(heap,  newshape=(self.length, 8))
+        self.length = int(self.heap_size / 8)
+        self.aligned_heap = np.reshape(heap, newshape=(self.length, 8))
         self.pointer_list = None
         self.format_heap(heap=heap)
 
@@ -85,7 +85,7 @@ class Heap:
         heap_offset = self.resolve_pointer_address(pointer)
 
         # Get the 8-byte aligned offset for formatted heap
-        heap_offset = int(heap_offset/8)
+        heap_offset = int(heap_offset / 8)
 
         # Header info is in the previous byte in little endian form
         header_offset = heap_offset - 1
@@ -241,8 +241,8 @@ class TestHeap:
 
         self.heap = heap
         self.heap_size = len(heap)
-        self.length = int(self.heap_size/8)
-        self.aligned_heap = np.reshape(heap,  newshape=(self.length, 8))
+        self.length = int(self.heap_size / 8)
+        self.aligned_heap = np.reshape(heap, newshape=(self.length, 8))
         self.pointer_list = None
         self.clf = clf
         self.format_heap(heap)
@@ -266,7 +266,14 @@ class TestHeap:
         if idx > len(self.aligned_heap):
             return False
 
-        address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
+        # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
+        address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
+                  self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
+                  self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] + \
+                  self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + self.formatted_heap[idx][-11] + \
+                  self.formatted_heap[idx][-14] + self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] + \
+                  self.formatted_heap[idx][-15]
+
         if int(address, 16) <= int(self.base_address, 16) or \
                 int(address, 16) > (int(self.base_address, 16) + self.heap_size):
             return False
@@ -320,9 +327,11 @@ class TestHeap:
         :param data:
         :return:
         """
-        temp = bytearray.fromhex(data)
-        temp.reverse()
-        return ''.join(format(x, '02x') for x in temp).upper()
+        # temp = bytearray.fromhex(data)
+        # temp.reverse()
+        # return ''.join(format(x, '02x') for x in temp).upper()
+        return data[-2] + data[-1] + data[-4] + data[-3] + data[-6] + data[-5] + data[-8] + data[-7] + data[-10] + \
+            data[-9] + data[-12] + data[-11] + data[-14] + data[-13] + data[-16] + data[-15]
 
     def test(self, clf):
 
@@ -331,11 +340,18 @@ class TestHeap:
         relevant_addresses = []
         block_pointers = []
         address_block = []
-        size = self.get_aligned_size()
-        for idx in range(size):
+        heap_size = self.get_aligned_size()
+        newkeys_found = 0
+        for idx in range(heap_size):
             curr_row = self.formatted_heap[idx]
             if self.is_pointer(curr_row) and self.is_heap_address_valid(idx=idx):
-                address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
+                # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
+                address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
+                          self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
+                          self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
+                          self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + \
+                          self.formatted_heap[idx][-11] + self.formatted_heap[idx][-14] + \
+                          self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] + self.formatted_heap[idx][-15]
                 data_addr = self.resolve_pointer_address(address=address)
                 if data_addr == 0:
                     continue
@@ -343,23 +359,23 @@ class TestHeap:
                 # Currently, offset is not included as it requires information about the predecessor
 
                 size = self.get_allocation_size(heap_offset=data_addr)
-                data_addr = int(data_addr/8)
-                indices_to_check = int(size/8)
+                data_addr = int(data_addr / 8)
+                indices_to_check = int(size / 8)
                 out_degree = 0
                 pointer_count = 0
 
                 # Get the heap offset by resolving the pointer
-                num_pointers = self.count_pointers(starting_addr=data_addr, allocation_size=int(size/8))
+                num_pointers = self.count_pointers(starting_addr=data_addr, allocation_size=int(size / 8))
                 for idx_range in range(indices_to_check):
-                    if self.is_pointer(self.formatted_heap[data_addr+idx_range]) is True:
+                    if self.is_pointer(self.formatted_heap[data_addr + idx_range]) is True:
                         pointer_count += 1
 
-                        if self.is_heap_address_valid(data_addr+idx_range) is True:
+                        if self.is_heap_address_valid(data_addr + idx_range) is True:
                             out_degree += 1
                 block_pointers.append([size, pointer_count, out_degree])
                 address_block.append(address.lstrip('0'))
                 # print([size, pointer_count, out_degree])
-            if len(block_pointers) >= 100:
+            if len(block_pointers) >= 1000:
                 y_pred = clf.predict(block_pointers)
 
                 for ptr_idx in range(len(y_pred)):
@@ -369,6 +385,9 @@ class TestHeap:
 
                 block_pointers = []
                 address_block = []
+                newkeys_found += sum(y_pred)
+                if newkeys_found >= 2:
+                    break
 
         if len(block_pointers) > 0:
             y_pred = clf.predict(block_pointers)

@@ -35,15 +35,6 @@ class Heap:
 
         return False
 
-    def format_heap(self, heap):
-        idx = 0
-        self.formatted_heap = []
-        formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
-        # Each byte is two characters
-        while idx < len(formatted_heap):
-            self.formatted_heap.append(formatted_heap[idx:idx + 16])
-            idx += 16
-
     def is_heap_address_valid(self, address):
         if int(address, 16) <= int(self.base_address, 16) or \
                 int(address, 16) > (int(self.base_address, 16) + self.heap_size):
@@ -104,17 +95,6 @@ class Heap:
     def get_data_at_index(self, index):
         return self.formatted_heap[index]
 
-    @staticmethod
-    def convert_to_big_endian(data):
-        """
-        Function converts hex little endian to big endian
-        :param data:
-        :return:
-        """
-        temp = bytearray.fromhex(data)
-        temp.reverse()
-        return ''.join(format(x, '02x') for x in temp).upper()
-        
 
 class HeapGraph(Heap):
     heap_graph = None
@@ -130,6 +110,28 @@ class HeapGraph(Heap):
 
     def get_graph(self):
         return self.heap_graph
+
+    @staticmethod
+    def convert_to_big_endian(data):
+        """
+        Function converts hex little endian to big endian
+        :param data:
+        :return:
+        """
+        # temp = bytearray.fromhex(data)
+        # temp.reverse()
+        # return ''.join(format(x, '02x') for x in temp).upper()
+        return data[-2] + data[-1] + data[-4] + data[-3] + data[-6] + data[-5] + data[-8] + data[-7] + data[-10] + \
+            data[-9] + data[-12] + data[-11] + data[-14] + data[-13] + data[-16] + data[-15]
+
+    def format_heap(self, heap):
+        idx = 0
+        self.formatted_heap = []
+        # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
+        formatted_heap = ''.join(hex_dict[x] for x in heap)
+
+        # Each byte is two characters
+        self.formatted_heap = [formatted_heap[i:i+16] for i in range(0, len(formatted_heap), 16)]
 
     def create_graph(self):
 
@@ -159,9 +161,10 @@ class HeapGraph(Heap):
             if allocated_size <= 0:
                 continue
 
-            num_pointers = self.count_pointers(pointer)
+            num_pointers, pointer_offset, valid_pointer_offset = self.count_pointers(pointer)
             self.heap_graph.add_node(pointer.lstrip("0"), size=allocated_size,
-                                     pointer_count=num_pointers, offset=0)
+                                     pointer_count=num_pointers, offset=0, pointer_offset=pointer_offset,
+                                     valid_pointer_offset=valid_pointer_offset)
 
         # Start adding edges
         for idx, pointer in enumerate(pointers):
@@ -215,16 +218,24 @@ class HeapGraph(Heap):
     def count_pointers(self, node):
         # The number of pointers for the allocated memory
         num_pointers = 0
-        allocation_size = int(self.get_allocation_size(node) / 8)
+        allocation_size = int(self.get_allocation_size(node) / 8) + 1
         starting_addr = int(self.resolve_pointer_address(node) / 8)
         idx = 0
+        last_pointer_offset = -1
+        last_valid_pointer_offset = -1
         while idx < allocation_size:
             if self.is_pointer(self.formatted_heap[starting_addr + idx]) is True:
                 num_pointers += 1
+                last_pointer_offset = idx
+                if self.is_heap_address_valid(
+                            self.convert_to_big_endian(self.formatted_heap[starting_addr + idx])) is True:
+                    last_valid_pointer_offset = idx
+
             idx += 1
-        return num_pointers
-        
-        
+
+        return num_pointers, last_pointer_offset, last_valid_pointer_offset
+
+
 class TestHeap:
 
     base_address = None
@@ -238,11 +249,13 @@ class TestHeap:
     def __init__(self, base_address, heap, clf):
         import numpy as np
         self.base_address = base_address
-
+        self.base_address_int = int(base_address, 16)
         self.heap = heap
         self.heap_size = len(heap)
+        self.end_of_heap = self.base_address_int + self.heap_size
         self.length = int(self.heap_size / 8)
         self.aligned_heap = np.reshape(heap, newshape=(self.length, 8))
+        self.aligned_heap_size = len(self.aligned_heap)
         self.pointer_list = None
         self.clf = clf
         self.format_heap(heap)
@@ -258,25 +271,26 @@ class TestHeap:
         self.formatted_heap = []
         # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
         formatted_heap = ''.join(hex_dict[x] for x in heap)
+
         # Each byte is two characters
-        while idx < len(formatted_heap):
-            self.formatted_heap.append(formatted_heap[idx:idx + 16])
-            idx += 16
+        self.formatted_heap = [formatted_heap[i:i+16] for i in range(0, len(formatted_heap), 16)]
+        # while idx < len(formatted_heap):
+        #     self.formatted_heap.append(formatted_heap[idx:idx + 16])
+        #     idx += 16
 
     def is_heap_address_valid(self, idx):
-        if idx > len(self.aligned_heap):
+        if idx > self.aligned_heap_size:
             return False
 
         # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
-        address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
-                  self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
-                  self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] + \
-                  self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + self.formatted_heap[idx][-11] + \
-                  self.formatted_heap[idx][-14] + self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] + \
-                  self.formatted_heap[idx][-15]
+        address = int(self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] +\
+                      self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] +\
+                      self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
+                      self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + self.formatted_heap[idx][-11] +\
+                      self.formatted_heap[idx][-14] + self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] +\
+                      self.formatted_heap[idx][-15], 16)
 
-        if int(address, 16) <= int(self.base_address, 16) or \
-                int(address, 16) > (int(self.base_address, 16) + self.heap_size):
+        if address <= self.base_address_int or address > self.end_of_heap:
             return False
 
         return True
@@ -287,7 +301,7 @@ class TestHeap:
         :param address: Valid address in the heap
         :return: Actual offset of the heap in base10
         """
-        diff = int(address, 16) - int(self.base_address, 16)
+        diff = int(address, 16) - self.base_address_int
         if diff <= 0 or diff > self.heap_size:
             return 0
         return diff
@@ -295,13 +309,14 @@ class TestHeap:
     def get_raw_size(self):
         return self.length
 
-    def get_aligned_size(self):
-        return len(self.aligned_heap)
+    @property
+    def aligned_size(self):
+        return self.aligned_heap_size
 
     def get_allocation_size(self, heap_offset):
 
         # Get the 8-byte aligned offset for formatted heap
-        heap_offset = int(heap_offset/8)
+        heap_offset = int(heap_offset / 8)
 
         # Header info is in the previous byte in little endian form
         header_offset = heap_offset - 1
@@ -336,12 +351,10 @@ class TestHeap:
 
     def test(self, clf):
 
-        graph = nx.DiGraph()
-
         relevant_addresses = []
         block_pointers = []
         address_block = []
-        heap_size = self.get_aligned_size()
+        heap_size = self.aligned_size
         newkeys_found = 0
         for idx in range(heap_size):
             curr_row = self.formatted_heap[idx]
@@ -361,7 +374,7 @@ class TestHeap:
 
                 size = self.get_allocation_size(heap_offset=data_addr)
                 data_addr = int(data_addr / 8)
-                indices_to_check = int(size / 8)
+                indices_to_check = int(size / 8) + 1
                 out_degree = 0
                 pointer_count = 0
 
@@ -370,13 +383,15 @@ class TestHeap:
                 for idx_range in range(indices_to_check):
                     if self.is_pointer(self.formatted_heap[data_addr + idx_range]) is True:
                         pointer_count += 1
-
+                        final_pointer_offset = idx_range
                         if self.is_heap_address_valid(data_addr + idx_range) is True:
                             out_degree += 1
-                block_pointers.append([size, pointer_count, out_degree])
+                            final_valid_pointer_offset = idx_range
+                block_pointers.append([size, pointer_count, out_degree, final_pointer_offset,
+                                       final_valid_pointer_offset])
                 address_block.append(address.lstrip('0'))
                 # print([size, pointer_count, out_degree])
-            if len(block_pointers) >= 1000:
+            if len(block_pointers) >= 250:
                 y_pred = clf.predict(block_pointers)
 
                 for ptr_idx in range(len(y_pred)):
@@ -386,9 +401,9 @@ class TestHeap:
 
                 block_pointers = []
                 address_block = []
-                newkeys_found += sum(y_pred)
-                if newkeys_found >= 2:
-                    break
+                # newkeys_found += sum(y_pred)
+                # if newkeys_found >= 2:
+                #     break
 
         if len(block_pointers) > 0:
             y_pred = clf.predict(block_pointers)

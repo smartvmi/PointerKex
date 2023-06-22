@@ -368,12 +368,21 @@ class TestHeap(Heap):
         address_block = []
         heap_size = self.aligned_size
         newkeys_found = 0
+
+        a = timer()
+        pointers = self.aligned_heap[ self.aligned_heap >= self.base_address_int ]
+        pointers = pointers[ pointers < self.base_address_int + self.heap_size ]
+        b = timer()
+        #
         # This is not how to do things with numpy. This will be horribly show.
-        for idx in range(heap_size):
-            # curr_row = self.formatted_heap[idx]
-            curr_row = self.aligned_heap[idx]
-            if self.is_pointer_candidate(curr_row) and self.is_heap_address_valid(idx=idx):
-                address = self.aligned_heap[idx]
+        #for idx in range(heap_size):
+        #    # curr_row = self.formatted_heap[idx]
+        #    curr_row = self.aligned_heap[idx]
+        #    if self.is_pointer_candidate(curr_row) and self.is_heap_address_valid(idx=idx):
+        #        address = self.aligned_heap[idx]
+        #
+        #
+        for address in pointers:
                 # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
                 #address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
                 #          self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
@@ -395,35 +404,42 @@ class TestHeap(Heap):
 
                 # Get the heap offset by resolving the pointer
                 # num_pointers = self.count_pointers(starting_addr=data_addr, allocation_size=int(size / 8))
-                for idx_range in range(indices_to_check):
-                    if self.is_pointer_candidate(self.aligned_heap[data_addr + idx_range]) is True:
+                # for idx_range in range(indices_to_check):
+                idx_range = 0
+                for ptr in self.aligned_heap[ data_addr : data_addr+indices_to_check ].tolist():
+                    #if self.is_pointer_candidate(self.aligned_heap[data_addr + idx_range]) is True:
+                    if self.is_pointer_candidate_int(ptr) is True:
                         pointer_count += 1
                         final_pointer_offset = idx_range
-                        if self.is_heap_address_valid(data_addr + idx_range) is True:
+                        # if self.is_heap_address_valid(data_addr + idx_range) is True:
+                        if super().is_heap_address_valid(ptr) is True:
                             out_degree += 1
                             final_valid_pointer_offset = idx_range
                         else:
                             ptr = self.aligned_heap[data_addr + idx_range]
                             #print("not in out_degree bit in pointer count: idx=",idx_range," ptraddr=",data_addr+idx_range,
                             #      "ptr=",hex(ptr))
+                    idx_range += 1
+
                 block_pointers.append([size, pointer_count, out_degree, final_pointer_offset,
                                        final_valid_pointer_offset])
                 # address_block.append(address.lstrip('0'))
                 address_block.append(address)
                 # print([size, pointer_count, out_degree])
-            if len(block_pointers) >= 250:
-                y_pred = clf.predict(block_pointers)
 
-                for ptr_idx in range(len(y_pred)):
+                if len(block_pointers) >= 250:
+                 y_pred = clf.predict(block_pointers)
+
+                 for ptr_idx in range(len(y_pred)):
                     if y_pred[ptr_idx] == 1:
                         #  if y_pred == 1:
                         relevant_addresses.append(address_block[ptr_idx])
 
-                block_pointers = []
-                address_block = []
-                # newkeys_found += sum(y_pred)
-                # if newkeys_found >= 2:
-                #     break
+                 block_pointers = []
+                 address_block = []
+                 # newkeys_found += sum(y_pred)
+                 # if newkeys_found >= 2:
+                 #     break
 
         if len(block_pointers) > 0:
             y_pred = clf.predict(block_pointers)
@@ -431,6 +447,8 @@ class TestHeap(Heap):
                 if y_pred[ptr_idx] == 1:
                     #  if y_pred == 1:
                     relevant_addresses.append(address_block[ptr_idx])
+        c = timer()
+        # print("Detila time: %f, %f" % ( b-a, c-b ))
         return list(set(relevant_addresses))
 
     def count_pointers(self, starting_addr, allocation_size):

@@ -245,8 +245,8 @@ def get_data_for_testing(clf, root):
                             found_key_count += 1
 
             else:
-                found_new_keys1 = key_dict.get(newkeys_1.upper(), None)
-                found_new_keys2 = key_dict.get(newkeys_2.upper(), None)
+                found_new_keys1 = key_dict.get( int(newkeys_1, 16), None)
+                found_new_keys2 = key_dict.get( int(newkeys_2, 16), None)
 
                 if found_new_keys1 is not None and found_new_keys2 is not None:
                     # print('Found both new keys')

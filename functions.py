@@ -252,7 +252,7 @@ def get_data_for_testing(clf, root):
                     # print('Found both new keys')
                     both_keys += 1
 
-                elif found_new_keys2 is None or found_new_keys1 is None:
+                elif found_new_keys2 is not None or found_new_keys1 is not None:
                     # print('Found one new key')
                     one_key_found.append(json_paths[idx] + '\n')
                     one_key += 1

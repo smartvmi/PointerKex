@@ -1,6 +1,8 @@
 import re
 import networkx as nx
 
+import numpy as np
+from time import time as timer
 
 class Heap:
 
@@ -9,35 +11,52 @@ class Heap:
     heap = None
     ssh_struct_address = None
     aligned_heap = None
-    formatted_heap = None
     length = 0
     heap_size = 0
     pointer_offsets = None
-    regex = re.compile("[0-9a-fA-F]{11}[1-9a-fA-F]0{4}")
+    # regex = re.compile("[0-9a-fA-F]{11}[1-9a-fA-F]0{4}")
 
     def __init__(self, base_address, heap, ssh_struct_addr=None):
         import numpy as np
         self.base_address = base_address
-        self.ssh_struct_address = ssh_struct_addr.lstrip("0").upper()
+        self.base_address_int = int(base_address, 16)
+        if ssh_struct_addr is not None:
+            self.ssh_struct_address = ssh_struct_addr.lstrip("0").upper()
 
         self.heap = heap
         self.heap_size = len(heap)
         self.length = int(self.heap_size / 8)
-        self.aligned_heap = np.reshape(heap, newshape=(self.length, 8))
+        # aligned_heap will be a numpy array of uint64 items
+        self.aligned_heap = np.frombuffer(heap, dtype=np.uint64)
         self.pointer_list = None
-        self.format_heap(heap=heap)
 
         self.get_all_pointers(ssh_struct_addr=ssh_struct_addr)
 
-    def is_pointer(self, address):
-        if self.regex.match(address) is not None:
-            return True
+    IMASK = 0x0F0000000000
+    MASK = np.uint64(IMASK)
+
+    # I renamed this to be is_pointer_candidate.
+    # I advise not using it any more but instead just always use is_head_address_valid
+    def is_pointer_candidate(self, address):
+        # This is the equivalent thing to the original regex. 
+        if address <= 0xFFFFFFFFFFFF and address & self.MASK > 0:
+                return True
+
+        return False
+
+    # Same as is_pointer_candidate, but address as plain python int instead of numpy np.uint64
+    def is_pointer_candidate_int(self, address):
+        # A bit strange, but is the same as the original regex. Should be modified to be more logical
+        if address <= 0xFFFFFFFFFFFF and address & self.IMASK > 0:
+                return True
 
         return False
 
     def is_heap_address_valid(self, address):
-        if int(address, 16) <= int(self.base_address, 16) or \
-                int(address, 16) > (int(self.base_address, 16) + self.heap_size):
+        #if int(address, 16) <= int(self.base_address, 16) or \
+        #        int(address, 16) > (int(self.base_address, 16) + self.heap_size):
+        # I keet the same, but it would be more correct to use "<" and ">=" instead of "<=" and ">"
+        if address <= self.base_address_int or address > self.base_address_int + self.heap_size:
             return False
 
         return True
@@ -48,18 +67,23 @@ class Heap:
         :param address: Valid address in the heap
         :return: Actual offset of the heap in base10
         """
-        diff = int(address, 16) - int(self.base_address, 16)
+        # diff = int(address, 16) - int(self.base_address, 16)
+        diff = int(address) - int(self.base_address, 16)
         if diff <= 0 or diff > self.heap_size:
             return 0
         return diff
 
     def get_all_pointers(self, ssh_struct_addr=None):
-        # We do the rstrip here because it is little endian
-        ptr = [(self.formatted_heap[x], x) for x in range(self.length)
-               if self.regex.match(self.formatted_heap[x]) is not None]
-
-        self.pointer_list = [x[0] for x in ptr]
-        self.pointer_offsets = [x[1] for x in ptr]
+        # Some fast numpy magic
+        # This is to match the original code with the regexp
+        # First, select all heap values with "0000" prefix
+        ptr = self.aligned_heap[ self.aligned_heap <= 0xFFFFFFFFFFFF ]
+        # Then, select all values with the 4 bits not zero.
+        self.pointer_list = ptr[ ptr & self.MASK > 0 ]
+        #
+        # !!!!  Actually, we should do it this way: !!!!
+        # ptr = self.algined_heap[ self.aligned_heap >= self.base_address ]
+        # self.pointer_list = ptr[ ptr < self.base_address + self.heap_size ]
         return
 
     def get_raw_size(self):
@@ -69,31 +93,26 @@ class Heap:
         return len(self.aligned_heap)
 
     def get_allocation_size(self, pointer):
-        if self.is_heap_address_valid(pointer) is False:
-            return 0
-
         # Get the heap offset by resolving the pointer
         heap_offset = self.resolve_pointer_address(pointer)
+        if heap_offset == 0:
+            return 0
 
         # Get the 8-byte aligned offset for formatted heap
         heap_offset = int(heap_offset / 8)
 
         # Header info is in the previous byte in little endian form
         header_offset = heap_offset - 1
-        header_data = self.formatted_heap[header_offset]
 
-        if int(self.convert_to_big_endian(header_data), 16) <= 0:
-            return 0
+        # This was -9, but the header is just 8 bytes
+        size = int(self.aligned_heap[header_offset]) - 8
 
-        # 8 bytes for the malloc header, 1 byte for flags
-        size = int(self.convert_to_big_endian(header_data), 16) - 9
-
-        if size > self.heap_size:
+        if size > self.heap_size or size < 0:
             return 0
         return size
 
     def get_data_at_index(self, index):
-        return self.formatted_heap[index]
+        return self.aligned_heap[index]
 
 
 class HeapGraph(Heap):
@@ -111,63 +130,35 @@ class HeapGraph(Heap):
     def get_graph(self):
         return self.heap_graph
 
-    @staticmethod
-    def convert_to_big_endian(data):
-        """
-        Function converts hex little endian to big endian
-        :param data:
-        :return:
-        """
-        # temp = bytearray.fromhex(data)
-        # temp.reverse()
-        # return ''.join(format(x, '02x') for x in temp).upper()
-        return data[-2] + data[-1] + data[-4] + data[-3] + data[-6] + data[-5] + data[-8] + data[-7] + data[-10] + \
-            data[-9] + data[-12] + data[-11] + data[-14] + data[-13] + data[-16] + data[-15]
-
-    def format_heap(self, heap):
-        idx = 0
-        self.formatted_heap = []
-        # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
-        formatted_heap = ''.join(hex_dict[x] for x in heap)
-
-        # Each byte is two characters
-        self.formatted_heap = [formatted_heap[i:i+16] for i in range(0, len(formatted_heap), 16)]
-
     def create_graph(self):
 
         self.heap_graph = nx.DiGraph()
 
-        # Big endian valid pointers
-        pointers = [self.convert_to_big_endian(pointer) for pointer in self.pointer_list
-                    if self.is_heap_address_valid(self.convert_to_big_endian(pointer))]
-
-        # Select only pointers which have addresses within the heap
-        pointers = [x.lstrip("0") for x in pointers if self.is_heap_address_valid(x) is True]
-
-        if self.ssh_struct_address is not None:
-            pointers.append(self.ssh_struct_address)
+        pointers = self.pointer_list
+        pointers = pointers[ pointers & np.uint64(15)==0 ]
 
         # Take only unique pointers. Multiple unique addresses are not necessary
         pointers = set(pointers)
+        #### If we modify get_all_poitner to only fetch items with valid pointers, we can remove this line
+        pointers = set( [int(p) for p in pointers if self.is_heap_address_valid(int(p))] )
 
-        #pointer that points to a data structure should be 16 bytes align (malloc in 64bit is 16 bytes allign)
-        #https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html
-        pointers = [x for x in pointers if int(x, 16) % 16 == 0]
-        # print(pointers)
+        # (not sure what the purpose of this is, but anyway...)
+        if self.ssh_struct_address is not None:
+            pointers.add( int(self.ssh_struct_address,16) )
 
-        # Create all the nodes
         for pointer in pointers:
             allocated_size = self.get_allocation_size(pointer=pointer)
             if allocated_size <= 0:
                 continue
 
             num_pointers, pointer_offset, valid_pointer_offset = self.count_pointers(pointer)
-            self.heap_graph.add_node(pointer.lstrip("0"), size=allocated_size,
+            self.heap_graph.add_node(pointer, size=allocated_size,
                                      pointer_count=num_pointers, offset=0, pointer_offset=pointer_offset,
                                      valid_pointer_offset=valid_pointer_offset)
 
         # Start adding edges
-        for idx, pointer in enumerate(pointers):
+        # for idx, pointer in enumerate(pointers):
+        for pointer in pointers:
 
             # Find how many rows are contained in the heap
             struct_start_addr = int(self.resolve_pointer_address(address=pointer) / 8)
@@ -177,24 +168,29 @@ class HeapGraph(Heap):
                 continue
             struct_ending_addr = struct_start_addr + int(allocated_size / 8)
 
-            inner_idx = struct_start_addr
-            while inner_idx <= struct_ending_addr:
-                if self.is_pointer(self.formatted_heap[inner_idx]) is True:
+            offset = 0
+            # tolist is making a conversion to plain python data types, which seems to be faster here
+            for ptr in self.aligned_heap[struct_start_addr:struct_start_addr + allocated_size//8].tolist():
+                # I guess this can be removed, no longer needed due to the tolist()?
+                # ptr = int(ptr)
+                if self.is_pointer_candidate_int(ptr) is True:
                     # We found a pointer, we add it as an edge from pointer to the identified address
                     # Convert the v edge to big endian and set the offset as the edge property
                     # Remove self loops by checking whether both the pointers are identical
-                    target_pointer = self.convert_to_big_endian(self.formatted_heap[inner_idx]).lstrip("0")
+                    # target_pointer = self.convert_to_big_endian(self.formatted_heap[inner_idx]).lstrip("0")
+                    target_pointer = ptr
                     if self.heap_graph.has_node(pointer) and self.heap_graph.has_node(target_pointer) and \
                             pointer != target_pointer:
 
                         #set offset on the node as well
                         self.heap_graph.nodes.get(target_pointer, {}).update(
-                            {"offset": (inner_idx - struct_start_addr) * 8})
+                            {"offset": offset})
 
                         self.heap_graph.add_edge(u_of_edge=pointer,
                                                  v_of_edge=target_pointer,
-                                                 offset=(inner_idx - struct_start_addr) * 8)
-                inner_idx += 1
+                                                 offset=offset)
+
+                offset += 8
 
         # remove nodes that do not have any incoming or outgoing edges
         self.heap_graph.remove_nodes_from(list(nx.isolates(self.heap_graph)))
@@ -220,15 +216,16 @@ class HeapGraph(Heap):
         num_pointers = 0
         allocation_size = int(self.get_allocation_size(node) / 8) + 1
         starting_addr = int(self.resolve_pointer_address(node) / 8)
+        mem = self.aligned_heap[ starting_addr : starting_addr + allocation_size ].tolist()
         idx = 0
         last_pointer_offset = -1
         last_valid_pointer_offset = -1
+
         while idx < allocation_size:
-            if self.is_pointer(self.formatted_heap[starting_addr + idx]) is True:
+            if self.is_pointer_candidate_int(mem[idx]) is True:
                 num_pointers += 1
                 last_pointer_offset = idx
-                if self.is_heap_address_valid(
-                            self.convert_to_big_endian(self.formatted_heap[starting_addr + idx])) is True:
+                if self.is_heap_address_valid(mem[idx]) is True:
                     last_valid_pointer_offset = idx
 
             idx += 1
@@ -236,15 +233,16 @@ class HeapGraph(Heap):
         return num_pointers, last_pointer_offset, last_valid_pointer_offset
 
 
-class TestHeap:
+# Would it not make more sense to let TestHeap also inherit from Heap and not duplicate code for is_pointer etc?
+class TestHeap(Heap):
 
     base_address = None
     heap = None
     aligned_heap = None
-    formatted_heap = None
+    #formatted_heap = None
     length = 0
     heap_size = 0
-    regex = re.compile("[0-9a-fA-F]{11}[1-9a-fA-F]0{4}")
+    # regex = re.compile("[0-9a-fA-F]{11}[1-9a-fA-F]0{4}")
 
     def __init__(self, base_address, heap, clf):
         import numpy as np
@@ -254,57 +252,69 @@ class TestHeap:
         self.heap_size = len(heap)
         self.end_of_heap = self.base_address_int + self.heap_size
         self.length = int(self.heap_size / 8)
-        self.aligned_heap = np.reshape(heap, newshape=(self.length, 8))
+        self.aligned_heap = np.frombuffer(heap, np.uint64)
         self.aligned_heap_size = len(self.aligned_heap)
         self.pointer_list = None
         self.clf = clf
-        self.format_heap(heap)
+        super().__init__(base_address=base_address, heap=heap)
+        #self.format_heap(heap)
 
-    def is_pointer(self, address):
-        if self.regex.match(address) is not None:
-            return True
+    # Now inherited from Heap
+    #def is_pointer_candidate(self, address):
+    #    if self.regex.match(address) is not None:
+    #        return True
+    #
+    #    return False
 
-        return False
+    # not needed anymore
+    #def format_heap(self, heap):
+    #    idx = 0
+    #    self.formatted_heap = []
+    #    # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
+    #    formatted_heap = ''.join(hex_dict[x] for x in heap)#
+    #    # Each byte is two characters
+    #    self.formatted_heap = [formatted_heap[i:i+16] for i in range(0, len(formatted_heap), 16)]
+    #    # while idx < len(formatted_heap):
+    #    #     self.formatted_heap.append(formatted_heap[idx:idx + 16])
+    #    #     idx += 16
 
-    def format_heap(self, heap):
-        idx = 0
-        self.formatted_heap = []
-        # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
-        formatted_heap = ''.join(hex_dict[x] for x in heap)
-
-        # Each byte is two characters
-        self.formatted_heap = [formatted_heap[i:i+16] for i in range(0, len(formatted_heap), 16)]
-        # while idx < len(formatted_heap):
-        #     self.formatted_heap.append(formatted_heap[idx:idx + 16])
-        #     idx += 16
-
+    # should be inherited from Heap, but parameter type is different: idx in array of 8 byte blocks where the address is stored
+    # vs. the actual address expected by Heap's function of the same name...
     def is_heap_address_valid(self, idx):
-        if idx > self.aligned_heap_size:
-            return False
+        addr = self.aligned_heap[idx]
+        valid = super().is_heap_address_valid(addr)
+        # print("ihav:",idx,hex(addr),"valid:",valid,"start",self.base_address)
+        return valid
 
-        # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
-        address = int(self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] +\
-                      self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] +\
-                      self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
-                      self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + self.formatted_heap[idx][-11] +\
-                      self.formatted_heap[idx][-14] + self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] +\
-                      self.formatted_heap[idx][-15], 16)
+    #    if idx > self.aligned_heap_size:
+    #        return False
+    #
+    #    address = self.aligned_heap[idx]
+    #    # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
+    #    #address = int(self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] +\
+    #    #              self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] +\
+    #    #              self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
+    #    #              self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + self.formatted_heap[idx][-11] +\
+    #    #              self.formatted_heap[idx][-14] + self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] +\
+    #    #              self.formatted_heap[idx][-15], 16)
+    #
+    #    if address <= self.base_address_int or address > self.end_of_heap:
+    #        return False
+    #
+    #   return True
 
-        if address <= self.base_address_int or address > self.end_of_heap:
-            return False
-
-        return True
-
-    def resolve_pointer_address(self, address):
-        """
-        Gets the actual offset from the starting of the heap
-        :param address: Valid address in the heap
-        :return: Actual offset of the heap in base10
-        """
-        diff = int(address, 16) - self.base_address_int
-        if diff <= 0 or diff > self.heap_size:
-            return 0
-        return diff
+    # inherited from Heap
+    #def resolve_pointer_address(self, address):
+    #    """
+    #    Gets the actual offset from the starting of the heap
+    #    :param address: Valid address in the heap
+    #    :return: Actual offset of the heap in base10
+    #    """
+    #    # diff = int(address, 16) - self.base_address_int
+    #    diff = address - self.base_address_int
+    #    if diff <= 0 or diff > self.heap_size:
+    #        return 0
+    #    return diff
 
     def get_raw_size(self):
         return self.length
@@ -313,59 +323,64 @@ class TestHeap:
     def aligned_size(self):
         return self.aligned_heap_size
 
+    #### Ugly: This takes heap_offset instead of pointer
+    #### While the base class (Heap) takes a pointer. Maybe fix whereever this is used and use the inherited function?
     def get_allocation_size(self, heap_offset):
-
+        return super().get_allocation_size( self.base_address_int + heap_offset)
         # Get the 8-byte aligned offset for formatted heap
-        heap_offset = int(heap_offset / 8)
-
+        #heap_offset = int(heap_offset / 8)
+        #
         # Header info is in the previous byte in little endian form
-        header_offset = heap_offset - 1
-        header_data = self.formatted_heap[header_offset]
-
-        size = int(self.convert_to_big_endian(header_data), 16)
-        if size <= 0:
-            return 0
-
-        # 8 bytes for the malloc header, 1 byte for flags
-        size = size - 9
-
-        if size > self.heap_size:
-            return 0
-        return size
+        #header_offset = heap_offset - 1
+        # header_data = self.formatted_heap[header_offset]
+        #header_data = int(self.aligned_heap[header_offset])
+        #
+        #size = header_data
+        #if size <= 8:
+        #    return 0
+        #
+        ## 8 bytes for the malloc header, 1 byte for flags
+        #size = size - 8
+        #
+        #if size > self.heap_size:
+        #    return 0
+        #return size
 
     def get_data_at_index(self, index):
-        return self.formatted_heap[index]
+        return self.aligned_heap[index]
 
-    @staticmethod
-    def convert_to_big_endian(data):
-        """
-        Function converts hex little endian to big endian
-        :param data:
-        :return:
-        """
-        # temp = bytearray.fromhex(data)
-        # temp.reverse()
-        # return ''.join(format(x, '02x') for x in temp).upper()
-        return data[-2] + data[-1] + data[-4] + data[-3] + data[-6] + data[-5] + data[-8] + data[-7] + data[-10] + \
-            data[-9] + data[-12] + data[-11] + data[-14] + data[-13] + data[-16] + data[-15]
+    #@staticmethod
+    #def convert_to_big_endian(data):
+    #    """
+    #    Function converts hex little endian to big endian
+    #    :param data:
+    #    :return:
+    #    """
+    #    # temp = bytearray.fromhex(data)
+    #    # temp.reverse()
+    #    # return ''.join(format(x, '02x') for x in temp).upper()
+    #    return data[-2] + data[-1] + data[-4] + data[-3] + data[-6] + data[-5] + data[-8] + data[-7] + data[-10] + \
+    #        data[-9] + data[-12] + data[-11] + data[-14] + data[-13] + data[-16] + data[-15]
 
     def test(self, clf):
-
         relevant_addresses = []
         block_pointers = []
         address_block = []
         heap_size = self.aligned_size
         newkeys_found = 0
+        # This is not how to do things with numpy. This will be horribly show.
         for idx in range(heap_size):
-            curr_row = self.formatted_heap[idx]
-            if self.is_pointer(curr_row) and self.is_heap_address_valid(idx=idx):
+            # curr_row = self.formatted_heap[idx]
+            curr_row = self.aligned_heap[idx]
+            if self.is_pointer_candidate(curr_row) and self.is_heap_address_valid(idx=idx):
+                address = self.aligned_heap[idx]
                 # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
-                address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
-                          self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
-                          self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
-                          self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + \
-                          self.formatted_heap[idx][-11] + self.formatted_heap[idx][-14] + \
-                          self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] + self.formatted_heap[idx][-15]
+                #address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
+                #          self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
+                #          self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
+                #          self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + \
+                #          self.formatted_heap[idx][-11] + self.formatted_heap[idx][-14] + \
+                #          self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] + self.formatted_heap[idx][-15]
                 data_addr = self.resolve_pointer_address(address=address)
                 if data_addr == 0:
                     continue
@@ -381,15 +396,20 @@ class TestHeap:
                 # Get the heap offset by resolving the pointer
                 # num_pointers = self.count_pointers(starting_addr=data_addr, allocation_size=int(size / 8))
                 for idx_range in range(indices_to_check):
-                    if self.is_pointer(self.formatted_heap[data_addr + idx_range]) is True:
+                    if self.is_pointer_candidate(self.aligned_heap[data_addr + idx_range]) is True:
                         pointer_count += 1
                         final_pointer_offset = idx_range
                         if self.is_heap_address_valid(data_addr + idx_range) is True:
                             out_degree += 1
                             final_valid_pointer_offset = idx_range
+                        else:
+                            ptr = self.aligned_heap[data_addr + idx_range]
+                            #print("not in out_degree bit in pointer count: idx=",idx_range," ptraddr=",data_addr+idx_range,
+                            #      "ptr=",hex(ptr))
                 block_pointers.append([size, pointer_count, out_degree, final_pointer_offset,
                                        final_valid_pointer_offset])
-                address_block.append(address.lstrip('0'))
+                # address_block.append(address.lstrip('0'))
+                address_block.append(address)
                 # print([size, pointer_count, out_degree])
             if len(block_pointers) >= 250:
                 y_pred = clf.predict(block_pointers)
@@ -418,7 +438,7 @@ class TestHeap:
         num_pointers = 0
         idx = 0
         while idx < allocation_size:
-            if self.is_pointer(self.formatted_heap[starting_addr + idx]) is True:
+            if self.is_pointer_candidate(self.aligned_heap[starting_addr + idx]) is True:
                 num_pointers += 1
             idx += 1
         return num_pointers

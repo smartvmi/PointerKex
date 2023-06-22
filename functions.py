@@ -3,7 +3,7 @@ import json
 import networkx as nx
 from tqdm.notebook import tqdm
 from classes import HeapGraph, TestHeap
-
+from time import time as timer
 
 def get_dataset_file_paths(path, deploy=False):
     import glob
@@ -102,7 +102,9 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
 
             dataset.append(feature_vector)
             label = 0
-            if node in relevant_nodes:
+            ## My modified code stores the addresses as numbers instead of hex encoded strings.
+            ## so to compare it with relevant_nodes, we need to convert it to a hex string and strip the "0x"
+            if hex(node)[2:].upper() in relevant_nodes:
                 label = 1
             labels.append(label)
 
@@ -143,12 +145,22 @@ def test(heap_path, base_address, clf):
         # The first address is the pointer to the name
         current_key_info = dict()
         aligned_heap_addr = int(data_addr / 8)
-        if not obj.is_pointer(obj.formatted_heap[aligned_heap_addr]):
+        ## Keeping it for now,but should better be is_heap_address_valid?
+        if not obj.is_pointer_candidate(obj.aligned_heap[aligned_heap_addr]):
             continue
 
         # resolve the pointer address after converting it to big-endian
-        actual_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr])
+        actual_address = obj.aligned_heap[aligned_heap_addr]
+        # Transforms a pointer into an offset relative to the beginning of the heap
         actual_address = obj.resolve_pointer_address(actual_address)
+
+        ## hr-TODO-note
+        ## Heap::get_allocation_size takes as argument a pointer (and internally calls resolve_pointer_address)
+        ## TestHeap::get_allocation_size takes as asrgument a relative heap offset (so you need to call resolve_pointer_address before
+        ## This is not really nice code style
+        ## My suggestion is to clean this up, make TestHeap inherit from Heap (and thus use the get_allocation_size implementation
+        ## from Heap
+        ## This requires changing the code her to pass the real pointer, not the relative address to get_allocation_size
 
         # Get string allocation size
         cipher_name_allocation_size = obj.get_allocation_size(actual_address)
@@ -158,19 +170,22 @@ def test(heap_path, base_address, clf):
 
         # Get the size of the key
         key_size = int.from_bytes(obj.heap[data_addr + 20:data_addr + 24], "little")
-        key_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr + 4])
+        key_address = obj.aligned_heap[aligned_heap_addr + 4]
         actual_key_address = int(obj.resolve_pointer_address(key_address) / 8)
         num_rows = round(key_size / 8)
-        key = ''.join([item for item in obj.formatted_heap[actual_key_address:actual_key_address + num_rows]])
+        ### TODO - this is probably not right as item is now a mp.uint64 instead of a byte array
+        key = ''.join([hex(item)[2:] for item in obj.aligned_heap[actual_key_address:actual_key_address + num_rows]])
         current_key_info['KEY_LEN'] = key_size
         current_key_info['KEY'] = key
 
         iv_size = int.from_bytes(obj.heap[data_addr + 24:data_addr + 28], "little")
         if iv_size != 0:
-            iv_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr + 5])
+            # iv_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr + 5])
+            iv_address = obj.aligned_heap[aligned_heap_addr + 5]
             actual_iv_address = int(obj.resolve_pointer_address(iv_address) / 8)
             num_rows = round(iv_size / 8)
-            iv = ''.join([item for item in obj.formatted_heap[actual_iv_address:actual_iv_address + num_rows]])
+            ### TODO - this is probably not right as item is now a mp.uint64 instead of a byte array
+            iv = ''.join([hex(item)[2:] for item in obj.aligned_heap[actual_iv_address:actual_iv_address + num_rows]])
             current_key_info['IV_LEN'] = iv_size
             current_key_info['IV'] = iv[:iv_size * 2]
 
@@ -195,7 +210,7 @@ def get_data_for_testing(clf, root):
     one_key_found = []
 
     for idx in range(len(json_paths)):
-
+        print(idx)
         with open(json_paths[idx], 'r') as fp:
             info = json.load(fp)
             base_address = info.get('HEAP_START', None)

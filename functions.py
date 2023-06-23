@@ -92,8 +92,8 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
             node_info = heap_graph.nodes.get(node)
             size = node_info.get('size', 0)
             pointer_count = node_info.get('pointer_count', 0)
-            pointer_offset = node_info.get('pointer_offset')
-            valid_pointer_offset = node_info.get('valid_pointer_offset')
+            pointer_offset = node_info.get('pointer_offset', -1)
+            valid_pointer_offset = node_info.get('valid_pointer_offset', -1)
 
             out_degree = heap_graph.out_degree[node]
 
@@ -236,16 +236,15 @@ def get_data_for_testing(clf, root):
                 if found_new_keys1 is not None and found_new_keys2 is not None:
                     # print('Found both new keys')
                     both_keys += 1
-
-                elif found_new_keys2 is None or found_new_keys1 is None:
-                    # print('Found one new key')
-                    one_key_found.append(json_paths[idx] + '\n')
-                    one_key += 1
-
-                else:
+                elif found_new_keys1 is None and found_new_keys2 is None:
                     # print('Found no keys')
                     no_key_found.append(json_paths[idx] + '\n')
                     zero_keys += 1
+
+                else:
+                    # print('Found one new key')
+                    one_key_found.append(json_paths[idx] + '\n')
+                    one_key += 1
 
                 total_files += 1
     return both_keys, one_key, zero_keys, total_files, found_key_count, total_individual_keys, one_key_found, \

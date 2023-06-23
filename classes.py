@@ -85,8 +85,8 @@ class Heap:
         if int(self.convert_to_big_endian(header_data), 16) <= 0:
             return 0
 
-        # 8 bytes for the malloc header, 1 byte for flags
-        size = int(self.convert_to_big_endian(header_data), 16) - 9
+        # 8 bytes for the malloc header
+        size = int(self.convert_to_big_endian(header_data), 16) - 8
 
         if size > self.heap_size:
             return 0
@@ -327,7 +327,34 @@ class TestHeap:
             return 0
 
         # 8 bytes for the malloc header, 1 byte for flags
-        size = size - 9
+        size = size - 8
+
+        if size > self.heap_size:
+            return 0
+        return size
+
+    def get_pointer_allocation_size(self, ptr):
+        pointer = self.convert_to_big_endian(ptr)
+
+        if int(pointer, 16) <= int(self.base_address, 16) or \
+                int(pointer, 16) > (int(self.base_address, 16) + self.heap_size):
+            return 0
+
+        # Get the heap offset by resolving the pointer
+        heap_offset = self.resolve_pointer_address(pointer)
+
+        # Get the 8-byte aligned offset for formatted heap
+        heap_offset = int(heap_offset / 8)
+
+        # Header info is in the previous byte in little endian form
+        header_offset = heap_offset - 1
+        header_data = self.formatted_heap[header_offset]
+
+        if int(self.convert_to_big_endian(header_data), 16) <= 0:
+            return 0
+
+        # 8 bytes for the malloc header
+        size = int(self.convert_to_big_endian(header_data), 16) - 8
 
         if size > self.heap_size:
             return 0
@@ -378,15 +405,20 @@ class TestHeap:
                 out_degree = 0
                 pointer_count = 0
 
+                final_pointer_offset = -1
+                final_valid_pointer_offset = -1
+
                 # Get the heap offset by resolving the pointer
                 # num_pointers = self.count_pointers(starting_addr=data_addr, allocation_size=int(size / 8))
                 for idx_range in range(indices_to_check):
                     if self.is_pointer(self.formatted_heap[data_addr + idx_range]) is True:
                         pointer_count += 1
                         final_pointer_offset = idx_range
+                        # Add size here
                         if self.is_heap_address_valid(data_addr + idx_range) is True:
-                            out_degree += 1
                             final_valid_pointer_offset = idx_range
+                            if self.get_pointer_allocation_size(self.formatted_heap[data_addr+idx_range]) > 0:
+                                out_degree += 1
                 block_pointers.append([size, pointer_count, out_degree, final_pointer_offset,
                                        final_valid_pointer_offset])
                 address_block.append(address.lstrip('0'))

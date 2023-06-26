@@ -95,6 +95,15 @@ class Heap:
     def get_data_at_index(self, index):
         return self.formatted_heap[index]
 
+    def format_heap(self, heap):
+        idx = 0
+        self.formatted_heap = []
+        # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
+        formatted_heap = ''.join(hex_dict[x] for x in heap)
+
+        # Each byte is two characters
+        self.formatted_heap = [formatted_heap[i:i+16] for i in range(0, len(formatted_heap), 16)]
+
 
 class HeapGraph(Heap):
     heap_graph = None
@@ -123,15 +132,6 @@ class HeapGraph(Heap):
         # return ''.join(format(x, '02x') for x in temp).upper()
         return data[-2] + data[-1] + data[-4] + data[-3] + data[-6] + data[-5] + data[-8] + data[-7] + data[-10] + \
             data[-9] + data[-12] + data[-11] + data[-14] + data[-13] + data[-16] + data[-15]
-
-    def format_heap(self, heap):
-        idx = 0
-        self.formatted_heap = []
-        # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
-        formatted_heap = ''.join(hex_dict[x] for x in heap)
-
-        # Each byte is two characters
-        self.formatted_heap = [formatted_heap[i:i+16] for i in range(0, len(formatted_heap), 16)]
 
     def create_graph(self):
 

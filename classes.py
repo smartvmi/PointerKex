@@ -235,8 +235,9 @@ class GenerateFeatures(Heap):
     def generate_features(self):
         relevant_addresses = []
         feature_list = []
-        pointer_list = []
+        pointer_list = dict()
         heap_size = self.aligned_size
+        feature_list_count = 0
 
         for idx in range(heap_size):
             curr_row = self.formatted_heap[idx]
@@ -273,8 +274,10 @@ class GenerateFeatures(Heap):
                             if self.get_pointer_allocation_size(self.formatted_heap[data_addr + idx_range]) > 0:
                                 out_degree += 1
                 feature_list.append([size, pointer_count, out_degree, final_pointer_offset,
-                                       final_valid_pointer_offset])
-                pointer_list.append(address.lstrip('0'))
+                                     final_valid_pointer_offset])
+
+                pointer_list[address.lstrip('0')] = feature_list_count
+                feature_list_count += 1
                 # print([size, pointer_count, out_degree])
 
         return feature_list, pointer_list

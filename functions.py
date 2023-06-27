@@ -82,16 +82,16 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
 
         heap_obj = GenerateFeatures(base_address=base_addr, heap=heap)
         features, addresses = heap_obj.generate_features()
-        curr_labels = [0] * len(addresses)
-        for inner_idx in range(len(addresses)):
-            if addresses[inner_idx] in relevant_nodes:
-                curr_labels[inner_idx] = 1
+        curr_labels = [0] * len(features)
+        # There should be two new keys.
+        curr_labels[addresses.get(relevant_nodes[0])] = 1
+        curr_labels[addresses.get(relevant_nodes[1])] = 1
 
         dataset = dataset + features
         labels = labels + curr_labels
 
 
-    # print('Total files found: %d' % total_files_found)
+    print('Total files found: %d' % total_files_found)
     return dataset, labels
 
 

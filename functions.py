@@ -1,8 +1,8 @@
 # Get all raw heap files and corresponding json files
 import json
 import networkx as nx
-from tqdm.notebook import tqdm
-from classes import HeapGraph, TestHeap
+from tqdm import tqdm
+from classes import GenerateFeatures, TestHeap
 
 
 def get_dataset_file_paths(path, deploy=False):
@@ -50,16 +50,8 @@ def load_and_clean_heap(heap_path, json_path):
 
     # construct graph of openssh' heap
     base_addr = info.get('HEAP_START', '00000000')
-    ssh_struct_addr = str(info.get('SSH_STRUCT_ADDR', None))
 
-    if ssh_struct_addr is None or ssh_struct_addr == 'None':
-        return None, None, None
-
-    ssh_struct_addr = ssh_struct_addr.upper()
-    heap_obj = HeapGraph(heap=heap, base_address=base_addr, ssh_struct_addr=ssh_struct_addr)
-    heap_obj.create_graph()
-
-    return heap_obj.heap_graph, ssh_struct_addr, info
+    return heap, info, base_addr
 
 
 def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
@@ -75,36 +67,29 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
     for idx in tqdm(range(limit), desc='Data Files'):
 
         # Read the raw heap and json information and create the graph
-        heap_graph, ssh_struct_addr, info = load_and_clean_heap(heap_path=heap_paths[idx],
-                                                                json_path=json_paths[idx])
-
-        if heap_graph is None:
-            continue
-
-        relevant_nodes = list((info.get('NEWKEYS_1_ADDR').upper(), info.get('NEWKEYS_2_ADDR').upper()))
+        heap, info, base_addr = load_and_clean_heap(heap_path=heap_paths[idx],
+                                                          json_path=json_paths[idx])
+        relevant_nodes = []
+        if info.get('NEWKEYS_1_ADDR', None) is not None:
+            relevant_nodes = [info.get('NEWKEYS_1_ADDR').upper()]
+        if info.get('NEWKEYS_2_ADDR', None) is not None:
+            relevant_nodes = relevant_nodes  + [info.get('NEWKEYS_2_ADDR').upper()]
+        # relevant_nodes = list((info.get('NEWKEYS_1_ADDR', '').upper(), info.get('NEWKEYS_2_ADDR', '').upper()))
         if len(relevant_nodes) == 0:
             continue
 
         total_files_found += 1
 
-        # Extract state of node(size, number of outgoing edges, parent size, parent outgoing edges, offset)
-        for node in list(nx.nodes(heap_graph)):
-            node_info = heap_graph.nodes.get(node)
-            size = node_info.get('size', 0)
-            pointer_count = node_info.get('pointer_count', 0)
-            pointer_offset = node_info.get('pointer_offset', -1)
-            valid_pointer_offset = node_info.get('valid_pointer_offset', -1)
+        heap_obj = GenerateFeatures(base_address=base_addr, heap=heap)
+        features, addresses = heap_obj.generate_features()
+        curr_labels = [0] * len(addresses)
+        for inner_idx in range(len(addresses)):
+            if addresses[inner_idx] in relevant_nodes:
+                curr_labels[inner_idx] = 1
 
-            out_degree = heap_graph.out_degree[node]
+        dataset = dataset + features
+        labels = labels + curr_labels
 
-            # Create the feature vector
-            feature_vector = [size, pointer_count, out_degree, pointer_offset, valid_pointer_offset]
-
-            dataset.append(feature_vector)
-            label = 0
-            if node in relevant_nodes:
-                label = 1
-            labels.append(label)
 
     # print('Total files found: %d' % total_files_found)
     return dataset, labels

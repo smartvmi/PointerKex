@@ -1,7 +1,7 @@
 # Get all raw heap files and corresponding json files
 import json
-import networkx as nx
-from tqdm import tqdm
+import numpy as np
+from tqdm.notebook import tqdm
 from classes import GenerateFeatures, TestHeap
 
 
@@ -73,7 +73,7 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
         if info.get('NEWKEYS_1_ADDR', None) is not None:
             relevant_nodes = [info.get('NEWKEYS_1_ADDR').upper()]
         if info.get('NEWKEYS_2_ADDR', None) is not None:
-            relevant_nodes = relevant_nodes  + [info.get('NEWKEYS_2_ADDR').upper()]
+            relevant_nodes = relevant_nodes + [info.get('NEWKEYS_2_ADDR').upper()]
         # relevant_nodes = list((info.get('NEWKEYS_1_ADDR', '').upper(), info.get('NEWKEYS_2_ADDR', '').upper()))
         if len(relevant_nodes) == 0:
             continue
@@ -82,14 +82,13 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
 
         heap_obj = GenerateFeatures(base_address=base_addr, heap=heap)
         features, addresses = heap_obj.generate_features()
-        curr_labels = [0] * len(features)
+        curr_labels = np.zeros(len(features), dtype=int)
         # There should be two new keys.
         curr_labels[addresses.get(relevant_nodes[0])] = 1
         curr_labels[addresses.get(relevant_nodes[1])] = 1
 
         dataset = dataset + features
-        labels = labels + curr_labels
-
+        labels = labels + curr_labels.tolist()
 
     print('Total files found: %d' % total_files_found)
     return dataset, labels

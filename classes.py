@@ -1,6 +1,7 @@
 import numpy as np
 import re
 
+
 class Heap:
 
     base_address = None
@@ -19,7 +20,7 @@ class Heap:
         self.heap_size = len(heap)
         self.end_of_heap = self.base_address_int + self.heap_size
         self.length = int(self.heap_size / 8)
-        self.aligned_heap = np.reshape(heap, newshape=(self.length, 8))
+        self.aligned_heap = np.frombuffer(heap, dtype=np.uint64).tolist()
         self.aligned_heap_size = len(self.aligned_heap)
         self.pointer_list = None
         self.format_heap(heap)
@@ -31,7 +32,7 @@ class Heap:
         return False
 
     def format_heap(self, heap):
-        idx = 0
+
         self.formatted_heap = []
         # formatted_heap = ''.join(format(x, '02x') for x in heap).upper()
         formatted_heap = ''.join(hex_dict[x] for x in heap)
@@ -47,13 +48,15 @@ class Heap:
             return False
 
         # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
+        """
         address = int(self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] +\
                       self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] +\
                       self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
                       self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + self.formatted_heap[idx][-11] +\
                       self.formatted_heap[idx][-14] + self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] +\
                       self.formatted_heap[idx][-15], 16)
-
+        """
+        address = self.aligned_heap[idx]
         if address <= self.base_address_int or address > self.end_of_heap:
             return False
 
@@ -80,52 +83,57 @@ class Heap:
     def get_allocation_size(self, heap_offset):
 
         # Get the 8-byte aligned offset for formatted heap
-        heap_offset = int(heap_offset / 8)
+        heap_offset = int(heap_offset/8)
 
         # Header info is in the previous byte in little endian form
         header_offset = heap_offset - 1
-        header_data = self.formatted_heap[header_offset]
+        # header_data = self.formatted_heap[header_offset]
 
-        size = int(self.convert_to_big_endian(header_data), 16)
+        # size = int(self.convert_to_big_endian(header_data), 16)
+        size = self.aligned_heap[header_offset]
         if size <= 0:
             return 0
 
-        # 8 bytes for the malloc header, 1 byte for flags
+        # 8 bytes for the malloc header
         size = size - 8
 
         if size > self.heap_size:
             return 0
         return size
 
-    def get_pointer_allocation_size(self, ptr):
-        pointer = self.convert_to_big_endian(ptr)
-
-        if int(pointer, 16) <= int(self.base_address, 16) or \
-                int(pointer, 16) > (int(self.base_address, 16) + self.heap_size):
+    def get_pointer_allocation_size(self, idx):
+        # pointer = self.convert_to_big_endian(self.formatted_heap[idx])
+        address = self.aligned_heap[idx]
+        if address <= self.base_address_int or \
+                address > self.end_of_heap:
             return 0
 
         # Get the heap offset by resolving the pointer
-        heap_offset = self.resolve_pointer_address(pointer)
+        # self.resolve_pointer_address(pointer)
+        heap_offset = address - self.base_address_int
 
         # Get the 8-byte aligned offset for formatted heap
         heap_offset = int(heap_offset / 8)
 
         # Header info is in the previous byte in little endian form
         header_offset = heap_offset - 1
-        header_data = self.formatted_heap[header_offset]
+        # header_data = self.formatted_heap[header_offset]
 
-        if int(self.convert_to_big_endian(header_data), 16) <= 0:
+        # size = int(self.convert_to_big_endian(header_data), 16)
+        size = self.aligned_heap[header_offset]
+
+        if size <= 0:
             return 0
 
         # 8 bytes for the malloc header
-        size = int(self.convert_to_big_endian(header_data), 16) - 8
+        size = size - 8
 
         if size > self.heap_size:
             return 0
         return size
 
-    def get_data_at_index(self, index):
-        return self.formatted_heap[index]
+    # def get_data_at_index(self, index):
+    #     return self.formatted_heap[index]
 
     @staticmethod
     def convert_to_big_endian(data):
@@ -166,15 +174,17 @@ class TestHeap(Heap):
         newkeys_found = 0
         for idx in range(heap_size):
             curr_row = self.formatted_heap[idx]
-            if self.is_pointer(curr_row) and self.is_heap_address_valid(idx=idx):
+            # if self.is_pointer(curr_row) and self.is_heap_address_valid(idx=idx):
+            if self.base_address_int <= self.aligned_heap[idx] <= self.end_of_heap:
                 # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
-                address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
-                          self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
-                          self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] +\
-                          self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + \
-                          self.formatted_heap[idx][-11] + self.formatted_heap[idx][-14] + \
-                          self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] + self.formatted_heap[idx][-15]
-                data_addr = self.resolve_pointer_address(address=address)
+                address = curr_row[-2] + curr_row[-1] + curr_row[-4] + \
+                          curr_row[-3] + curr_row[-6] + curr_row[-5] + \
+                          curr_row[-8] + curr_row[-7] + curr_row[-10] +\
+                          curr_row[-9] + curr_row[-12] + \
+                          curr_row[-11] + curr_row[-14] + \
+                          curr_row[-13] + curr_row[-16] + curr_row[-15]
+                # data_addr = self.resolve_pointer_address(address=address)
+                data_addr = self.aligned_heap[idx] - self.base_address_int
                 if data_addr == 0:
                     continue
                 # [size, pointer_count, offset, out_degree]
@@ -198,7 +208,7 @@ class TestHeap(Heap):
                         # Add size here
                         if self.is_heap_address_valid(data_addr + idx_range) is True:
                             final_valid_pointer_offset = idx_range
-                            if self.get_pointer_allocation_size(self.formatted_heap[data_addr+idx_range]) > 0:
+                            if self.get_pointer_allocation_size(data_addr+idx_range) > 0:
                                 out_degree += 1
                 block_pointers.append([size, pointer_count, out_degree, final_pointer_offset,
                                        final_valid_pointer_offset])
@@ -233,7 +243,7 @@ class GenerateFeatures(Heap):
         super().__init__(base_address=base_address, heap=heap)
 
     def generate_features(self):
-        relevant_addresses = []
+
         feature_list = []
         pointer_list = dict()
         heap_size = self.aligned_size
@@ -241,16 +251,18 @@ class GenerateFeatures(Heap):
 
         for idx in range(heap_size):
             curr_row = self.formatted_heap[idx]
-            if self.is_pointer(curr_row) and self.is_heap_address_valid(idx=idx):
+            # if self.is_pointer(curr_row) and self.is_heap_address_valid(idx=idx):
+            if self.base_address_int <= self.aligned_heap[idx] <= self.end_of_heap:
                 # address = ''.join(format(x, '02x') for x in self.aligned_heap[idx][::-1]).upper()
-                address = self.formatted_heap[idx][-2] + self.formatted_heap[idx][-1] + self.formatted_heap[idx][-4] + \
-                          self.formatted_heap[idx][-3] + self.formatted_heap[idx][-6] + self.formatted_heap[idx][-5] + \
-                          self.formatted_heap[idx][-8] + self.formatted_heap[idx][-7] + self.formatted_heap[idx][-10] + \
-                          self.formatted_heap[idx][-9] + self.formatted_heap[idx][-12] + \
-                          self.formatted_heap[idx][-11] + self.formatted_heap[idx][-14] + \
-                          self.formatted_heap[idx][-13] + self.formatted_heap[idx][-16] + self.formatted_heap[idx][-15]
-                data_addr = self.resolve_pointer_address(address=address)
-                if data_addr == 0:
+                address = curr_row[-2] + curr_row[-1] + curr_row[-4] + \
+                          curr_row[-3] + curr_row[-6] + curr_row[-5] + \
+                          curr_row[-8] + curr_row[-7] + curr_row[-10] + \
+                          curr_row[-9] + curr_row[-12] + \
+                          curr_row[-11] + curr_row[-14] + \
+                          curr_row[-13] + curr_row[-16] + curr_row[-15]
+                # data_addr = self.resolve_pointer_address(address=address)
+                data_addr = self.aligned_heap[idx] - self.base_address_int
+                if data_addr <= 0:
                     continue
 
                 size = self.get_allocation_size(heap_offset=data_addr)
@@ -271,14 +283,20 @@ class GenerateFeatures(Heap):
                         # Add size here
                         if self.is_heap_address_valid(data_addr + idx_range) is True:
                             final_valid_pointer_offset = idx_range
-                            if self.get_pointer_allocation_size(self.formatted_heap[data_addr + idx_range]) > 0:
+                            if self.get_pointer_allocation_size(data_addr + idx_range) > 0:
                                 out_degree += 1
                 feature_list.append([size, pointer_count, out_degree, final_pointer_offset,
                                      final_valid_pointer_offset])
-
-                pointer_list[address.lstrip('0')] = feature_list_count
+                # Sometimes there are multiple pointers that point to the NEWKEYS. So these all have to be considered
+                # as positive samples. Therefore, we need an array to store the indices
+                # The below method will introduce multiple false positives even though they aren't for the
+                # reason stated above
+                # pointer_list[address.lstrip('0')] = feature_list_count
+                # feature_list_count += 1
+                idx_list = pointer_list.get(address.lstrip('0'), [])
+                idx_list.append(feature_list_count)
+                pointer_list[address.lstrip('0')] = idx_list
                 feature_list_count += 1
-                # print([size, pointer_count, out_degree])
 
         return feature_list, pointer_list
 

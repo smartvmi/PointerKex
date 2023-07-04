@@ -1,5 +1,4 @@
 import numpy as np
-import re
 
 
 class Heap:
@@ -12,8 +11,6 @@ class Heap:
     heap_size = 0
     clf = None
     pointer_candidate_indices = None
-    # regex = re.compile("[0-9a-fA-F]{11}[1-9a-fA-F]0{4}")
-    regex = None
     IMASK = 0x0F0000000000
     MASK = np.uint64(IMASK)
 
@@ -45,12 +42,6 @@ class Heap:
         for idx in range(len(self.sizes)):
             self.pointer_sizes_dict[self.aligned_heap[self.pointer_candidate_indices[idx]]] = self.sizes[idx]
         self.pointer_list = None
-
-    def is_pointer_candidate(self, address):
-        if self.regex.match(address) is not None:
-            return True
-
-        return False
 
     def is_pointer_candidate_int(self, address):
         # A bit strange, but is the same as the original regex. Should be modified to be more logical

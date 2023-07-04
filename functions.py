@@ -1,8 +1,8 @@
 # Get all raw heap files and corresponding json files
 import json
-import networkx as nx
-from tqdm import tqdm
-from classes import GenerateFeatures, TestHeap
+import numpy as np
+from tqdm.notebook import tqdm
+from classes import GenerateFeatures, TestHeap, hex_dict
 
 
 def get_dataset_file_paths(path, deploy=False):
@@ -38,8 +38,8 @@ def get_dataset_file_paths(path, deploy=False):
                 print("Corresponding Key file does not exist for :%s" % file)
 
     return file_paths, key_paths
-    
-    
+
+
 # Open the raw file and create graph structure from the pointers
 def load_and_clean_heap(heap_path, json_path):
     with open(heap_path, 'rb') as fp:
@@ -68,13 +68,12 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
 
         # Read the raw heap and json information and create the graph
         heap, info, base_addr = load_and_clean_heap(heap_path=heap_paths[idx],
-                                                          json_path=json_paths[idx])
+                                                    json_path=json_paths[idx])
         relevant_nodes = []
         if info.get('NEWKEYS_1_ADDR', None) is not None:
-            relevant_nodes = [info.get('NEWKEYS_1_ADDR').upper()]
+            relevant_nodes = [int(info.get('NEWKEYS_1_ADDR').upper(), 16)]
         if info.get('NEWKEYS_2_ADDR', None) is not None:
-            relevant_nodes = relevant_nodes  + [info.get('NEWKEYS_2_ADDR').upper()]
-        # relevant_nodes = list((info.get('NEWKEYS_1_ADDR', '').upper(), info.get('NEWKEYS_2_ADDR', '').upper()))
+            relevant_nodes = relevant_nodes + [int(info.get('NEWKEYS_2_ADDR').upper(), 16)]
         if len(relevant_nodes) == 0:
             continue
 
@@ -82,14 +81,13 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
 
         heap_obj = GenerateFeatures(base_address=base_addr, heap=heap)
         features, addresses = heap_obj.generate_features()
-        curr_labels = [0] * len(features)
+        curr_labels = np.zeros(len(features), dtype=int)
         # There should be two new keys.
         curr_labels[addresses.get(relevant_nodes[0])] = 1
         curr_labels[addresses.get(relevant_nodes[1])] = 1
 
         dataset = dataset + features
-        labels = labels + curr_labels
-
+        labels = labels + curr_labels.tolist()
 
     print('Total files found: %d' % total_files_found)
     return dataset, labels
@@ -108,11 +106,8 @@ def test(heap_path, base_address, clf):
         data_addr = obj.resolve_pointer_address(address=address)
 
         # Get the allocation size of the NEW KEYS STRUCT
-        allocation_size = obj.get_allocation_size(data_addr)
+        # allocation_size = obj.get_allocation_size(data_addr)
 
-        # NEW_KEYS size is atleast 120 bytes
-        if allocation_size < 110:
-            continue
         # https://github.com/openssh/openssh-portable/blob/d9dbb5d9a0326e252d3c7bc13beb9c2434f59409/kex.h#L130
         #   struct sshenc {
         #   char	*name;
@@ -128,12 +123,12 @@ def test(heap_path, base_address, clf):
         # The first address is the pointer to the name
         current_key_info = dict()
         aligned_heap_addr = int(data_addr / 8)
-        if not obj.is_pointer(obj.formatted_heap[aligned_heap_addr]):
+        if not obj.is_pointer_candidate_int(obj.aligned_heap[aligned_heap_addr]):
             continue
 
         # resolve the pointer address after converting it to big-endian
-        actual_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr])
-        actual_address = obj.resolve_pointer_address(actual_address)
+        # actual_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr])
+        actual_address = obj.resolve_pointer_address(obj.aligned_heap[aligned_heap_addr])
 
         # Get string allocation size
         cipher_name_allocation_size = obj.get_allocation_size(actual_address)
@@ -143,19 +138,21 @@ def test(heap_path, base_address, clf):
 
         # Get the size of the key
         key_size = int.from_bytes(obj.heap[data_addr + 20:data_addr + 24], "little")
-        key_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr + 4])
+        key_address = obj.aligned_heap[aligned_heap_addr + 4]
         actual_key_address = int(obj.resolve_pointer_address(key_address) / 8)
         num_rows = round(key_size / 8)
-        key = ''.join([item for item in obj.formatted_heap[actual_key_address:actual_key_address + num_rows]])
+        key = ''.join(hex_dict[x] for x in obj.heap[actual_key_address * 8:(actual_key_address + num_rows) * 8])
+        # key = ''.join([item for item in obj.formatted_heap[actual_key_address:actual_key_address + num_rows]])
         current_key_info['KEY_LEN'] = key_size
         current_key_info['KEY'] = key
 
         iv_size = int.from_bytes(obj.heap[data_addr + 24:data_addr + 28], "little")
         if iv_size != 0:
-            iv_address = obj.convert_to_big_endian(obj.formatted_heap[aligned_heap_addr + 5])
+            iv_address = obj.aligned_heap[aligned_heap_addr + 5]
             actual_iv_address = int(obj.resolve_pointer_address(iv_address) / 8)
             num_rows = round(iv_size / 8)
-            iv = ''.join([item for item in obj.formatted_heap[actual_iv_address:actual_iv_address + num_rows]])
+            iv = ''.join([hex_dict.get(item) for item in
+                          obj.heap[actual_iv_address * 8:(actual_iv_address + num_rows) * 8]])
             current_key_info['IV_LEN'] = iv_size
             current_key_info['IV'] = iv[:iv_size * 2]
 
@@ -215,8 +212,8 @@ def get_data_for_testing(clf, root):
                             found_key_count += 1
 
             else:
-                found_new_keys1 = key_dict.get(newkeys_1.upper(), None)
-                found_new_keys2 = key_dict.get(newkeys_2.upper(), None)
+                found_new_keys1 = key_dict.get(int(newkeys_1.upper(), 16), None)
+                found_new_keys2 = key_dict.get(int(newkeys_2.upper(), 16), None)
 
                 if found_new_keys1 is not None and found_new_keys2 is not None:
                     # print('Found both new keys')

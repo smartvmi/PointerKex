@@ -63,6 +63,10 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
     labels = []
 
     total_files_found = 0
+    total_size = 0
+
+    dataset_dict = dict()
+    labels_dict = dict()
 
     for idx in tqdm(range(limit), desc='Data Files'):
 
@@ -86,11 +90,24 @@ def generate_dataset(heap_paths, json_paths, train_subset=True, block_size=100):
         curr_labels[addresses.get(relevant_nodes[0])] = 1
         curr_labels[addresses.get(relevant_nodes[1])] = 1
 
-        dataset = dataset + features
-        labels = labels + curr_labels.tolist()
+        dataset_dict[idx] = features
+        labels_dict[idx] = curr_labels
+        total_size += len(curr_labels)
+
+    curr_index = 0
+    end_index = 0
+    dataset = np.empty(shape=(total_size, 5), dtype=int)
+    labels = np.zeros(total_size, dtype=int)
+    for key, item in dataset_dict.items():
+        end_index += len(item)
+        dataset[curr_index:end_index] = item
+        labels[curr_index:end_index] = labels_dict[key]
+        curr_index = end_index
+        # dataset = dataset + features
+        # labels = labels + curr_labels.tolist()
 
     print('Total files found: %d' % total_files_found)
-    return dataset, labels
+    return dataset.tolist(), labels.tolist()
 
 
 # Extract actual keys
